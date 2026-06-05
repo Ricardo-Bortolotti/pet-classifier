@@ -26,15 +26,13 @@ class Predictor:
         self.model_name: str = self.artifact["model_name"]
         self.image_size: int = self.artifact["image_size"]
         self.transform = get_eval_transforms(self.image_size)
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model.to(self.device)
 
     @torch.no_grad()
     def predict(self, image_bytes: bytes, top_k: int = 3) -> list[PredictionResult]:
         """Classify an image and return top-k predictions."""
         image = Image.open(BytesIO(image_bytes)).convert("RGB")
         tensor = self.transform(image=np.array(image))["image"]
-        batch = tensor.unsqueeze(0).to(self.device)
+        batch = tensor.unsqueeze(0)
 
         logits = self.model(batch)
         probabilities = F.softmax(logits, dim=1).squeeze(0)

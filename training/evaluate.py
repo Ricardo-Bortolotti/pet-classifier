@@ -7,7 +7,6 @@ from torch.utils.data import DataLoader
 def evaluate(
     model: nn.Module,
     dataloader: DataLoader,
-    device: torch.device,
 ) -> dict[str, float]:
     """Compute loss and accuracy on a dataset."""
     model.eval()
@@ -17,9 +16,6 @@ def evaluate(
     total = 0
 
     for images, labels in dataloader:
-        images = images.to(device)
-        labels = labels.to(device)
-
         outputs = model(images)
         loss = criterion(outputs, labels)
 

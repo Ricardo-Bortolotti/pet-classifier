@@ -163,7 +163,6 @@ def create_dataloaders(
     loader_kwargs = {
         "batch_size": batch_size,
         "num_workers": num_workers,
-        "pin_memory": True,
     }
 
     return DataLoaders(

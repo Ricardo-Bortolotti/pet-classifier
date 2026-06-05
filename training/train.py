@@ -18,8 +18,6 @@ from training.models import build_model, list_models
 def set_seed(seed: int) -> None:
     random.seed(seed)
     torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
 
 
 def train_one_epoch(
@@ -27,16 +25,12 @@ def train_one_epoch(
     dataloader: DataLoader,
     criterion: nn.Module,
     optimizer: torch.optim.Optimizer,
-    device: torch.device,
 ) -> float:
     model.train()
     total_loss = 0.0
     total = 0
 
     for images, labels in dataloader:
-        images = images.to(device)
-        labels = labels.to(device)
-
         optimizer.zero_grad()
         outputs = model(images)
         loss = criterion(outputs, labels)
@@ -52,7 +46,6 @@ def train_one_epoch(
 def run_training(config: ExperimentConfig) -> Path:
     """Train a model and log the experiment to MLflow."""
     set_seed(config.seed)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     loaders = create_dataloaders(
         data_dir=config.data_dir,
@@ -65,7 +58,7 @@ def run_training(config: ExperimentConfig) -> Path:
 
     config.model.num_classes = len(loaders.class_names)
     config.model.image_size = config.image_size
-    model = build_model(config.model).to(device)
+    model = build_model(config.model)
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(
         model.parameters(),
@@ -97,8 +90,8 @@ def run_training(config: ExperimentConfig) -> Path:
         checkpoint_path = config.output_dir / "best_model.pth"
 
         for epoch in range(1, config.epochs + 1):
-            train_loss = train_one_epoch(model, loaders.train, criterion, optimizer, device)
-            val_metrics = evaluate(model, loaders.val, device)
+            train_loss = train_one_epoch(model, loaders.train, criterion, optimizer)
+            val_metrics = evaluate(model, loaders.val)
 
             mlflow.log_metrics(
                 {
@@ -129,7 +122,7 @@ def run_training(config: ExperimentConfig) -> Path:
                     checkpoint_path,
                 )
 
-        test_metrics = evaluate(model, loaders.test, device)
+        test_metrics = evaluate(model, loaders.test)
         mlflow.log_metrics(
             {
                 "best_val_accuracy": best_accuracy,
