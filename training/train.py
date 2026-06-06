@@ -9,10 +9,17 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from training.config import ExperimentConfig
+from training.config import ExperimentConfig, FreezeStrategy
 from training.dataset import create_dataloaders
 from training.evaluate import evaluate
 from training.models import build_model, list_models
+from training.transfer_learning import (
+    apply_freeze_strategy,
+    count_parameters,
+    describe_freeze_strategy,
+    get_experiment_stage,
+    get_training_mode,
+)
 
 
 def set_seed(seed: int) -> None:
@@ -43,6 +50,11 @@ def train_one_epoch(
     return total_loss / max(total, 1)
 
 
+def _checkpoint_path(config: ExperimentConfig) -> Path:
+    suffix = "baseline" if config.model.name == "simple_cnn" else config.model.freeze_strategy.value
+    return config.output_dir / f"{config.model.name}_{suffix}_best.pth"
+
+
 def run_training(config: ExperimentConfig) -> Path:
     """Train a model and log the experiment to MLflow."""
     set_seed(config.seed)
@@ -59,9 +71,17 @@ def run_training(config: ExperimentConfig) -> Path:
     config.model.num_classes = len(loaders.class_names)
     config.model.image_size = config.image_size
     model = build_model(config.model)
+    apply_freeze_strategy(model, config.model)
+
+    trainable_params = count_parameters(model, trainable_only=True)
+    total_params = count_parameters(model)
+    training_mode = get_training_mode(config.model)
+    experiment_stage = get_experiment_stage(config.model)
+    freeze_description = describe_freeze_strategy(config.model)
+
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(
-        model.parameters(),
+        (param for param in model.parameters() if param.requires_grad),
         lr=config.learning_rate,
         weight_decay=config.weight_decay,
     )
@@ -70,24 +90,52 @@ def run_training(config: ExperimentConfig) -> Path:
     mlflow.set_experiment(config.experiment_name)
 
     with mlflow.start_run(run_name=config.run_name):
+        mlflow.set_tags(
+            {
+                "training_mode": training_mode,
+                "model_name": config.model.name,
+                "experiment_stage": experiment_stage,
+                "freeze_strategy": config.model.freeze_strategy.value,
+            }
+        )
         mlflow.log_params(
             {
                 "model_name": config.model.name,
                 "num_classes": config.model.num_classes,
                 "pretrained": config.model.pretrained,
+                "freeze_strategy": config.model.freeze_strategy.value,
+                "freeze_description": freeze_description,
+                "training_mode": training_mode,
+                "experiment_stage": experiment_stage,
                 "batch_size": config.batch_size,
                 "epochs": config.epochs,
                 "learning_rate": config.learning_rate,
                 "weight_decay": config.weight_decay,
                 "image_size": config.image_size,
                 "val_ratio": config.val_ratio,
+                "dropout": config.model.dropout,
+                "trainable_parameters": trainable_params,
+                "total_parameters": total_params,
                 "class_names": ",".join(loaders.class_names),
             }
         )
 
+        print(
+            f"\nPetVision AI — Treinamento\n"
+            f"Modelo          : {config.model.name}\n"
+            f"Experimento     : {experiment_stage}\n"
+            f"Modo            : {training_mode}\n"
+            f"Estratégia      : {config.model.freeze_strategy.value}\n"
+            f"Congelamento    : {freeze_description}\n"
+            f"Pré-treinado    : {config.model.pretrained}\n"
+            f"Parâmetros      : {trainable_params:,} treináveis / {total_params:,} total\n"
+            f"Train/Val/Test  : {len(loaders.train.dataset)} / "
+            f"{len(loaders.val.dataset)} / {len(loaders.test.dataset)}\n"
+        )
+
         best_accuracy = 0.0
         config.output_dir.mkdir(parents=True, exist_ok=True)
-        checkpoint_path = config.output_dir / "best_model.pth"
+        checkpoint_path = _checkpoint_path(config)
 
         for epoch in range(1, config.epochs + 1):
             train_loss = train_one_epoch(model, loaders.train, criterion, optimizer)
@@ -118,6 +166,10 @@ def run_training(config: ExperimentConfig) -> Path:
                         "class_names": loaders.class_names,
                         "num_classes": config.model.num_classes,
                         "image_size": config.image_size,
+                        "pretrained": config.model.pretrained,
+                        "freeze_strategy": config.model.freeze_strategy.value,
+                        "training_mode": training_mode,
+                        "experiment_stage": experiment_stage,
                     },
                     checkpoint_path,
                 )
@@ -150,26 +202,53 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--val-ratio", type=float, default=0.2)
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=32)
-    parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--image-size", type=int, default=128)
+    parser.add_argument("--lr", type=float, default=None)
+    parser.add_argument("--image-size", type=int, default=None)
     parser.add_argument("--experiment", default="petvision-classification")
     parser.add_argument("--run-name", default=None)
+    parser.add_argument(
+        "--freeze-strategy",
+        choices=[strategy.value for strategy in FreezeStrategy],
+        default=None,
+        help="Gradual freezing strategy for EfficientNet-B0.",
+    )
+    parser.add_argument(
+        "--pretrained",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Use ImageNet pretrained weights (default depends on model).",
+    )
+    parser.add_argument(
+        "--freeze-backbone",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Shortcut for --freeze-strategy head_only/full.",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    config = ExperimentConfig.from_model_name(
-        args.model,
-        data_dir=args.data_dir,
-        val_ratio=args.val_ratio,
-        epochs=args.epochs,
-        batch_size=args.batch_size,
-        learning_rate=args.lr,
-        image_size=args.image_size,
-        experiment_name=args.experiment,
-        run_name=args.run_name,
-    )
+    overrides: dict = {
+        "data_dir": args.data_dir,
+        "val_ratio": args.val_ratio,
+        "epochs": args.epochs,
+        "batch_size": args.batch_size,
+        "experiment_name": args.experiment,
+        "run_name": args.run_name,
+    }
+    if args.lr is not None:
+        overrides["learning_rate"] = args.lr
+    if args.image_size is not None:
+        overrides["image_size"] = args.image_size
+    if args.pretrained is not None:
+        overrides["pretrained"] = args.pretrained
+    if args.freeze_strategy is not None:
+        overrides["freeze_strategy"] = args.freeze_strategy
+    if args.freeze_backbone is not None:
+        overrides["freeze_backbone"] = args.freeze_backbone
+
+    config = ExperimentConfig.from_model_name(args.model, **overrides)
     checkpoint = run_training(config)
     print(f"Training complete. Best model saved to: {checkpoint}")
 

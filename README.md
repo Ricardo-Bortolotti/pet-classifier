@@ -64,22 +64,37 @@ data/
     └── *.jpg
 ```
 
-Treine com a arquitetura desejada:
+Sequência de experimentos para comparar no MLflow:
 
-```bash
-# ResNet18 (padrão)
-uv run python -m training.train --data-dir data --epochs 10
+```powershell
+# Exp 1 — CNN Baseline (do zero)
+uv run python -m training.train --model simple_cnn --run-name exp1-cnn-baseline --epochs 10 --batch-size 64
 
-# ResNet50
-uv run python -m training.train --model resnet50 --data-dir data
+# Exp 2 — Transfer Learning (feature extraction, backbone congelado)
+uv run python -m training.train --model efficientnet_b0 --freeze-strategy head_only --run-name exp2-efficientnet-head-only --epochs 10 --batch-size 32
 
-# EfficientNet-B0
-uv run python -m training.train --model efficientnet_b0 --data-dir data --run-name efficientnet-exp1
+# Exp 3 — Fine-Tuning Parcial (últimos 2 blocos + classifier)
+uv run python -m training.train --model efficientnet_b0 --freeze-strategy partial --run-name exp3-efficientnet-partial --epochs 10 --batch-size 32
+
+# Exp 4 — Fine-Tuning Completo (todos os pesos)
+uv run python -m training.train --model efficientnet_b0 --freeze-strategy full --run-name exp4-efficientnet-full --epochs 10 --batch-size 32
 ```
 
-Modelos disponíveis: `resnet18`, `resnet50`, `efficientnet_b0`.
+Estratégias de congelamento (`--freeze-strategy`):
+| Valor | Descrição |
+|-------|-----------|
+| `head_only` | `features` congelado, só `classifier` treina |
+| `partial` | `features[:-2]` congelado, `features[-2:]` + `classifier` treinam |
+| `full` | Todos os pesos treináveis |
 
-O melhor checkpoint é salvo em `app/models/best_model.pth` e os experimentos em `mlruns/`.
+Compare runs no MLflow UI:
+
+```powershell
+uv run mlflow ui --backend-store-uri sqlite:///mlflow.db
+```
+
+Checkpoints: `app/models/{modelo}_{estrategia}_best.pth` (ex: `efficientnet_b0_partial_best.pth`).
+Experimentos ficam em `mlflow.db` (SQLite).
 
 ### 4. Rodar a API localmente
 

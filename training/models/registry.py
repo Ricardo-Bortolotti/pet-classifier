@@ -4,6 +4,7 @@ import torch.nn as nn
 from torchvision import models
 
 from training.config import ModelConfig
+from training.models.efficientnet import build_efficientnet_b0
 from training.models.simple_cnn import SimpleCNN
 
 
@@ -27,13 +28,6 @@ def _build_resnet50(config: ModelConfig) -> nn.Module:
     return model
 
 
-def _build_efficientnet_b0(config: ModelConfig) -> nn.Module:
-    weights = models.EfficientNet_B0_Weights.DEFAULT if config.pretrained else None
-    model = models.efficientnet_b0(weights=weights)
-    model.classifier[1] = nn.Linear(model.classifier[1].in_features, config.num_classes)
-    return model
-
-
 def _build_simple_cnn(config: ModelConfig) -> nn.Module:
     return SimpleCNN(
         num_classes=config.num_classes,
@@ -45,7 +39,7 @@ MODEL_REGISTRY: dict[str, Callable[[ModelConfig], nn.Module]] = {
     "simple_cnn": _build_simple_cnn,
     "resnet18": _build_resnet18,
     "resnet50": _build_resnet50,
-    "efficientnet_b0": _build_efficientnet_b0,
+    "efficientnet_b0": build_efficientnet_b0,
 }
 
 

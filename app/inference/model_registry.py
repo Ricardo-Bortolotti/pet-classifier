@@ -21,7 +21,11 @@ class ModelRegistry:
 
     def load(self, checkpoint_path: Path | str | None = None) -> dict:
         """Load a checkpoint and build the corresponding model."""
-        path = Path(checkpoint_path) if checkpoint_path else self.models_dir / "best_model.pth"
+        if checkpoint_path:
+            path = Path(checkpoint_path)
+        else:
+            candidates = sorted(self.models_dir.glob("*_best.pth"))
+            path = candidates[-1] if candidates else self.models_dir / "best_model.pth"
 
         cache_key = str(path.resolve())
         if cache_key in self._cache:

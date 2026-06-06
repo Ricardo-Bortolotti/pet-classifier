@@ -8,6 +8,7 @@ build/
 
 # ML / Data
 mlruns/
+mlflow.db
 *.pth
 *.pt
 *.onnx
