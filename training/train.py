@@ -1,7 +1,9 @@
 """Training entry point with MLflow experiment tracking."""
 
 import argparse
+import json
 import random
+from dataclasses import dataclass
 from pathlib import Path
 
 import mlflow
@@ -13,6 +15,7 @@ from training.config import ExperimentConfig, FreezeStrategy
 from training.dataset import create_dataloaders
 from training.evaluate import evaluate
 from training.models import build_model, list_models
+from training.optim import build_optimizer, build_scheduler, step_scheduler
 from training.transfer_learning import (
     apply_freeze_strategy,
     count_parameters,
@@ -20,6 +23,15 @@ from training.transfer_learning import (
     get_experiment_stage,
     get_training_mode,
 )
+
+
+@dataclass
+class TrainingResult:
+    """Outcome of a training run."""
+
+    best_val_accuracy: float
+    test_accuracy: float
+    checkpoint_path: Path | None
 
 
 def set_seed(seed: int) -> None:
@@ -55,7 +67,20 @@ def _checkpoint_path(config: ExperimentConfig) -> Path:
     return config.output_dir / f"{config.model.name}_{suffix}_best.pth"
 
 
-def run_training(config: ExperimentConfig) -> Path:
+def load_hpo_params(path: Path) -> dict:
+    """Load hyperparameters exported by an Optuna study."""
+    with path.open(encoding="utf-8") as file:
+        return json.load(file)
+
+
+def run_training(
+    config: ExperimentConfig,
+    *,
+    save_checkpoint: bool = True,
+    log_artifact: bool = True,
+    nested_run: bool = False,
+    hpo_trial_number: int | None = None,
+) -> TrainingResult:
     """Train a model and log the experiment to MLflow."""
     set_seed(config.seed)
 
@@ -80,24 +105,30 @@ def run_training(config: ExperimentConfig) -> Path:
     freeze_description = describe_freeze_strategy(config.model)
 
     criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(
-        (param for param in model.parameters() if param.requires_grad),
-        lr=config.learning_rate,
-        weight_decay=config.weight_decay,
-    )
+    optimizer = build_optimizer(model, config)
+    scheduler = build_scheduler(optimizer, config, config.epochs)
 
     mlflow.set_tracking_uri(config.mlflow_tracking_uri)
     mlflow.set_experiment(config.experiment_name)
 
-    with mlflow.start_run(run_name=config.run_name):
-        mlflow.set_tags(
-            {
-                "training_mode": training_mode,
-                "model_name": config.model.name,
-                "experiment_stage": experiment_stage,
-                "freeze_strategy": config.model.freeze_strategy.value,
-            }
-        )
+    run_kwargs: dict = {"run_name": config.run_name}
+    if nested_run:
+        run_kwargs["nested"] = True
+
+    with mlflow.start_run(**run_kwargs):
+        tags = {
+            "training_mode": training_mode,
+            "model_name": config.model.name,
+            "experiment_stage": experiment_stage,
+            "freeze_strategy": config.model.freeze_strategy.value,
+        }
+        if nested_run:
+            tags["hpo"] = "true"
+            if hpo_trial_number is not None:
+                tags["trial_number"] = str(hpo_trial_number)
+                tags["parent_study"] = "hpo-exp3-study"
+
+        mlflow.set_tags(tags)
         mlflow.log_params(
             {
                 "model_name": config.model.name,
@@ -111,6 +142,8 @@ def run_training(config: ExperimentConfig) -> Path:
                 "epochs": config.epochs,
                 "learning_rate": config.learning_rate,
                 "weight_decay": config.weight_decay,
+                "optimizer": config.optimizer,
+                "scheduler": config.scheduler,
                 "image_size": config.image_size,
                 "val_ratio": config.val_ratio,
                 "dropout": config.model.dropout,
@@ -128,18 +161,27 @@ def run_training(config: ExperimentConfig) -> Path:
             f"Estratégia      : {config.model.freeze_strategy.value}\n"
             f"Congelamento    : {freeze_description}\n"
             f"Pré-treinado    : {config.model.pretrained}\n"
+            f"Optimizer       : {config.optimizer}\n"
+            f"Scheduler       : {config.scheduler}\n"
             f"Parâmetros      : {trainable_params:,} treináveis / {total_params:,} total\n"
             f"Train/Val/Test  : {len(loaders.train.dataset)} / "
             f"{len(loaders.val.dataset)} / {len(loaders.test.dataset)}\n"
         )
 
         best_accuracy = 0.0
-        config.output_dir.mkdir(parents=True, exist_ok=True)
-        checkpoint_path = _checkpoint_path(config)
+        checkpoint_path: Path | None = None
+        if save_checkpoint:
+            config.output_dir.mkdir(parents=True, exist_ok=True)
+            checkpoint_path = _checkpoint_path(config)
 
         for epoch in range(1, config.epochs + 1):
             train_loss = train_one_epoch(model, loaders.train, criterion, optimizer)
             val_metrics = evaluate(model, loaders.val)
+            step_scheduler(
+                scheduler,
+                val_loss=val_metrics["loss"],
+                scheduler_name=config.scheduler,
+            )
 
             mlflow.log_metrics(
                 {
@@ -157,7 +199,7 @@ def run_training(config: ExperimentConfig) -> Path:
                 f"val_acc={val_metrics['accuracy']:.4f}"
             )
 
-            if val_metrics["accuracy"] > best_accuracy:
+            if val_metrics["accuracy"] > best_accuracy and save_checkpoint and checkpoint_path:
                 best_accuracy = val_metrics["accuracy"]
                 torch.save(
                     {
@@ -173,6 +215,8 @@ def run_training(config: ExperimentConfig) -> Path:
                     },
                     checkpoint_path,
                 )
+            elif val_metrics["accuracy"] > best_accuracy:
+                best_accuracy = val_metrics["accuracy"]
 
         test_metrics = evaluate(model, loaders.test)
         mlflow.log_metrics(
@@ -185,9 +229,14 @@ def run_training(config: ExperimentConfig) -> Path:
 
         print(f"Test | loss={test_metrics['loss']:.4f} | acc={test_metrics['accuracy']:.4f}")
 
-        mlflow.log_artifact(str(checkpoint_path))
+        if log_artifact and checkpoint_path is not None and checkpoint_path.exists():
+            mlflow.log_artifact(str(checkpoint_path))
 
-    return checkpoint_path
+    return TrainingResult(
+        best_val_accuracy=best_accuracy,
+        test_accuracy=test_metrics["accuracy"],
+        checkpoint_path=checkpoint_path if save_checkpoint else None,
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -224,6 +273,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Shortcut for --freeze-strategy head_only/full.",
     )
+    parser.add_argument(
+        "--from-hpo",
+        type=Path,
+        default=None,
+        help="Load hyperparameters from an Optuna export JSON file.",
+    )
     return parser.parse_args()
 
 
@@ -247,10 +302,15 @@ def main() -> None:
         overrides["freeze_strategy"] = args.freeze_strategy
     if args.freeze_backbone is not None:
         overrides["freeze_backbone"] = args.freeze_backbone
+    if args.from_hpo is not None:
+        overrides.update(load_hpo_params(args.from_hpo))
 
     config = ExperimentConfig.from_model_name(args.model, **overrides)
-    checkpoint = run_training(config)
-    print(f"Training complete. Best model saved to: {checkpoint}")
+    result = run_training(config)
+    if result.checkpoint_path is not None:
+        print(f"Training complete. Best model saved to: {result.checkpoint_path}")
+    else:
+        print("Training complete.")
 
 
 if __name__ == "__main__":

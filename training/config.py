@@ -44,6 +44,8 @@ class ExperimentConfig:
     epochs: int = 10
     learning_rate: float = 1e-4
     weight_decay: float = 1e-4
+    optimizer: str = "adam"
+    scheduler: str = "none"
     image_size: int = 224
     num_workers: int = 4
     seed: int = 42

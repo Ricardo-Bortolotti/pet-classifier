@@ -26,6 +26,8 @@ petvision-ai/
 │   └── schemas/prediction.py
 ├── training/
 │   ├── train.py                 # Treino com MLflow
+│   ├── tune.py                  # HPO com Optuna (Exp 3)
+│   ├── optim.py                 # Optimizer e scheduler
 │   ├── dataset.py
 │   ├── transforms.py
 │   ├── evaluate.py
@@ -95,6 +97,23 @@ uv run mlflow ui --backend-store-uri sqlite:///mlflow.db
 
 Checkpoints: `app/models/{modelo}_{estrategia}_best.pth` (ex: `efficientnet_b0_partial_best.pth`).
 Experimentos ficam em `mlflow.db` (SQLite).
+
+#### HPO — Otimização de hiperparâmetros (Exp 3)
+
+Busca automática com Optuna para melhorar o fine-tuning parcial (`efficientnet_b0` + `partial`):
+
+```powershell
+# 10 trials × 5 épocas (métricas no MLflow, tag hpo=true, sem checkpoints)
+uv run python -m training.tune --n-trials 10 --epochs 5
+
+# Treino final com os melhores hiperparâmetros exportados
+uv run python -m training.train --model efficientnet_b0 --freeze-strategy partial `
+  --epochs 10 --run-name exp3-optimized --from-hpo app/models/hpo/exp3_best_params.json
+```
+
+Hiperparâmetros buscados: `learning_rate`, `batch_size`, `dropout`, `weight_decay`, `optimizer`, `scheduler`.
+Runs no MLflow: run pai `hpo-exp3-study` + nested runs `trial_001` … `trial_010`.
+Estudo Optuna persistido em `optuna_exp3.db`.
 
 ### 4. Rodar a API localmente
 

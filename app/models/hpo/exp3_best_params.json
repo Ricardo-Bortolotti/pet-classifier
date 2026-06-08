@@ -1,0 +1,8 @@
+{
+  "learning_rate": 0.0019555662889739586,
+  "batch_size": 16,
+  "dropout": 0.15800259168133388,
+  "weight_decay": 5.863772254464481e-06,
+  "optimizer": "sgd",
+  "scheduler": "cosine"
+}
