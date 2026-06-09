@@ -1,8 +1,8 @@
 {
-  "learning_rate": 0.0019555662889739586,
-  "batch_size": 16,
-  "dropout": 0.15800259168133388,
-  "weight_decay": 5.863772254464481e-06,
-  "optimizer": "sgd",
+  "learning_rate": 0.006581690046041262,
+  "batch_size": 32,
+  "dropout": 0.16727498645500338,
+  "weight_decay": 0.0001554128245568897,
+  "optimizer": "adamw",
   "scheduler": "cosine"
 }

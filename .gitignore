@@ -14,6 +14,10 @@ mlflow.db
 *.onnx
 data/
 !app/models/.gitkeep
+optuna_exp3.db
+test.db
+reports/
+app/models/champion.json
 
 # IDE / OS
 .idea/

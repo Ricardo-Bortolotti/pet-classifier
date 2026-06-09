@@ -27,6 +27,9 @@ petvision-ai/
 ├── training/
 │   ├── train.py                 # Treino com MLflow
 │   ├── tune.py                  # HPO com Optuna (Exp 3)
+│   ├── compare.py               # Avaliação final e champion model
+│   ├── register.py              # Registro no MLflow Model Registry
+│   ├── plots.py                 # Gráficos comparativos
 │   ├── optim.py                 # Optimizer e scheduler
 │   ├── dataset.py
 │   ├── transforms.py
@@ -115,6 +118,42 @@ Hiperparâmetros buscados: `learning_rate`, `batch_size`, `dropout`, `weight_dec
 Runs no MLflow: run pai `hpo-exp3-study` + nested runs `trial_001` … `trial_010`.
 Estudo Optuna persistido em `optuna_exp3.db`.
 
+#### Etapa 7 — Avaliação Final e Champion Model
+
+Compare todos os checkpoints treinados e selecione automaticamente o melhor modelo pelo maior `val_acc`:
+
+```powershell
+uv run python -m training.compare --data-dir data
+```
+
+Métricas calculadas por modelo: **Accuracy**, **Precision**, **Recall**, **F1-score**, **ROC-AUC** e **val_acc**.
+Gráficos comparativos registrados no MLflow (run `final-model-comparison`) e salvos em `reports/final_comparison/`.
+O champion é promovido para `app/models/best_model.pth` (usado pela API por padrão).
+Manifesto exportado em `app/models/champion.json`.
+
+```powershell
+uv run mlflow ui --backend-store-uri sqlite:///mlflow.db
+```
+
+#### Etapa 8 — Model Registry e Produção
+
+Fluxo MLOps completo: Baseline → Experimentos → HPO → Compare → Register → Produção.
+
+```powershell
+# 1. Comparar modelos e eleger champion
+uv run python -m training.compare --data-dir data
+
+# 2. Registrar champion no MLflow Model Registry (stage Production)
+uv run python -m training.register
+
+# 3. API em modo produção (carrega automaticamente do Registry)
+$env:PETVISION_MODEL_SOURCE="registry"
+uv run uvicorn app.api.main:app --reload --port 8000
+```
+
+Em desenvolvimento local, a API usa checkpoints locais por padrão (`PETVISION_MODEL_SOURCE=local`).
+No Docker Compose, a API já está configurada para carregar `models:/petvision-classifier/Production`.
+
 ### 4. Rodar a API localmente
 
 ```bash
@@ -125,6 +164,22 @@ Endpoints:
 - `GET /health` — status da API
 - `GET /models` — arquiteturas e checkpoints disponíveis
 - `POST /predict` — classificação de imagem
+- `POST /explain` — classificação + Grad-CAM (heatmap base64)
+
+#### Etapa 11 — Grad-CAM (Explainability)
+
+Visualize as regiões da imagem que mais influenciaram a predição:
+
+```powershell
+# Via API (retorna overlay PNG em base64)
+curl -X POST "http://localhost:8000/explain?top_k=3" -F "file=@cat.jpg"
+
+# Explicar uma classe específica
+curl -X POST "http://localhost:8000/explain?target_label=cat" -F "file=@cat.jpg"
+```
+
+No Streamlit, marque **Mostrar Grad-CAM** na barra lateral para ver o overlay após a classificação.
+Arquiteturas suportadas: `simple_cnn`, `resnet18`, `resnet50`, `efficientnet_b0`.
 
 ### 5. Rodar o frontend Streamlit
 
@@ -163,6 +218,7 @@ uv run pytest --cov=app --cov=training
 - **Arquiteturas**: adicione novos modelos em `training/models/registry.py`.
 - **Experimentos**: cada execução de `training.train` cria um run no MLflow com parâmetros, métricas e artefatos.
 - **Checkpoints**: salve modelos adicionais em `app/models/` e carregue via `ModelRegistry`.
+- **Model Registry**: após `training.register`, o champion fica em `petvision-classifier@Production` no MLflow.
 
 ## Licença
 

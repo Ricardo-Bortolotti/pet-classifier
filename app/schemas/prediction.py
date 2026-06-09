@@ -19,3 +19,12 @@ class PredictionResponse(BaseModel):
 
     model_name: str
     predictions: list[PredictionResult]
+
+
+class ExplainResponse(BaseModel):
+    """API response with Grad-CAM visualization."""
+
+    model_name: str
+    predictions: list[PredictionResult]
+    explained_class: str
+    heatmap_base64: str = Field(description="PNG overlay with Grad-CAM heatmap (base64)")
