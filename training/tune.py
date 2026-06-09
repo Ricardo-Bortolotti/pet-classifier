@@ -122,10 +122,10 @@ def run_hpo_study(
         mlflow.log_artifact(str(exported))
 
         print(
-            f"\nHPO concluído — melhor trial: trial_{study.best_trial.number + 1:03d}\n"
+            f"\nHPO complete — best trial: trial_{study.best_trial.number + 1:03d}\n"
             f"best_val_accuracy={study.best_value:.4f}\n"
-            f"Parâmetros exportados em: {exported}\n"
-            f"\nTreino final sugerido:\n"
+            f"Exported parameters: {exported}\n"
+            f"\nSuggested final training:\n"
             f"  uv run python -m training.train --model efficientnet_b0 "
             f"--freeze-strategy partial --epochs 10 "
             f"--run-name exp3-optimized --from-hpo {exported}\n"

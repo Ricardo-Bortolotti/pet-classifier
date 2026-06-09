@@ -42,28 +42,28 @@ def main() -> None:
     st.caption("Production-grade image classification platform")
 
     with st.sidebar:
-        st.header("Configurações")
+        st.header("Settings")
         api_url = st.text_input("API URL", value=API_URL)
-        show_grad_cam = st.checkbox("Mostrar Grad-CAM", value=True)
+        show_grad_cam = st.checkbox("Show Grad-CAM", value=True)
 
-        if st.button("Verificar API"):
+        if st.button("Check API health"):
             try:
                 response = requests.get(f"{api_url}/health", timeout=5)
                 st.json(response.json())
             except requests.RequestException as exc:
-                st.error(f"API indisponível: {exc}")
+                st.error(f"API unavailable: {exc}")
 
     uploaded_file = st.file_uploader(
-        "Envie uma imagem",
+        "Upload an image",
         type=["jpg", "jpeg", "png", "webp"],
     )
 
     if uploaded_file is not None:
-        st.image(uploaded_file, caption="Imagem enviada", use_container_width=True)
+        st.image(uploaded_file, caption="Uploaded image", use_container_width=True)
 
-        if st.button("Classificar"):
+        if st.button("Classify"):
             endpoint = "explain" if show_grad_cam else "predict"
-            with st.spinner("Classificando..."):
+            with st.spinner("Classifying..."):
                 try:
                     content_type = _image_content_type(uploaded_file)
                     response = requests.post(
@@ -79,28 +79,28 @@ def main() -> None:
                         timeout=60,
                     )
                     if not response.ok:
-                        st.error(f"Erro na predição: {_api_error_message(response)}")
+                        st.error(f"Prediction error: {_api_error_message(response)}")
                         return
                     result = response.json()
 
-                    st.success(f"Modelo: **{result['model_name']}**")
+                    st.success(f"Model: **{result['model_name']}**")
                     if result["predictions"]:
                         top_pred = result["predictions"][0]
-                        st.markdown(f"**Categoria prevista:** {top_pred['label']}")
+                        st.markdown(f"**Predicted class:** {top_pred['label']}")
                         st.progress(
                             top_pred["confidence"],
-                            text=f"Confiança: {top_pred['confidence']:.1%}",
+                            text=f"Confidence: {top_pred['confidence']:.1%}",
                         )
 
                     if show_grad_cam and "heatmap_base64" in result:
                         heatmap = Image.open(BytesIO(base64.b64decode(result["heatmap_base64"])))
                         st.image(
                             heatmap,
-                            caption=f"Grad-CAM — classe explicada: {result['explained_class']}",
+                            caption=f"Grad-CAM — explained class: {result['explained_class']}",
                             use_container_width=True,
                         )
                 except requests.RequestException as exc:
-                    st.error(f"Erro na predição: {exc}")
+                    st.error(f"Prediction error: {exc}")
 
 
 if __name__ == "__main__":

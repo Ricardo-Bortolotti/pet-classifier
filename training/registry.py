@@ -137,11 +137,11 @@ def register_champion_model(
 
     print(
         f"\nPetVision AI — Model Registry\n"
-        f"Modelo registrado : {model_name}\n"
-        f"Versão            : {version}\n"
+        f"Registered model  : {model_name}\n"
+        f"Version           : {version}\n"
         f"Stage             : {stage}\n"
         f"URI               : {model_uri}\n"
-        f"\nProdução:\n"
+        f"\nProduction:\n"
         f"  PETVISION_MODEL_SOURCE=registry uv run uvicorn app.api.main:app --reload\n"
     )
 

@@ -246,13 +246,13 @@ def run_final_comparison(
             mlflow.log_artifact(str(plot_path))
 
     print(
-        f"\nPetVision AI — Avaliação Final\n"
-        f"Modelos comparados : {len(results)}\n"
+        f"\nPetVision AI — Final Evaluation\n"
+        f"Models compared    : {len(results)}\n"
         f"Champion           : {champion.label}\n"
         f"val_acc            : {champion.val_acc:.4f}\n"
         f"test accuracy      : {champion.test_metrics['accuracy']:.4f}\n"
-        f"Promovido para     : {champion_path}\n"
-        f"Relatórios         : {reports_dir}\n"
+        f"Promoted to        : {champion_path}\n"
+        f"Reports            : {reports_dir}\n"
     )
 
     return champion

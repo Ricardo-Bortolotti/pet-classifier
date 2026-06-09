@@ -154,16 +154,16 @@ def run_training(
         )
 
         print(
-            f"\nPetVision AI — Treinamento\n"
-            f"Modelo          : {config.model.name}\n"
-            f"Experimento     : {experiment_stage}\n"
-            f"Modo            : {training_mode}\n"
-            f"Estratégia      : {config.model.freeze_strategy.value}\n"
-            f"Congelamento    : {freeze_description}\n"
-            f"Pré-treinado    : {config.model.pretrained}\n"
+            f"\nPetVision AI — Training\n"
+            f"Model           : {config.model.name}\n"
+            f"Experiment      : {experiment_stage}\n"
+            f"Mode            : {training_mode}\n"
+            f"Strategy        : {config.model.freeze_strategy.value}\n"
+            f"Freezing        : {freeze_description}\n"
+            f"Pretrained      : {config.model.pretrained}\n"
             f"Optimizer       : {config.optimizer}\n"
             f"Scheduler       : {config.scheduler}\n"
-            f"Parâmetros      : {trainable_params:,} treináveis / {total_params:,} total\n"
+            f"Parameters      : {trainable_params:,} trainable / {total_params:,} total\n"
             f"Train/Val/Test  : {len(loaders.train.dataset)} / "
             f"{len(loaders.val.dataset)} / {len(loaders.test.dataset)}\n"
         )

@@ -1,65 +1,66 @@
 # PetVision AI
 
-Production-grade image classification platform using PyTorch, FastAPI, Docker and MLOps practices.
+End-to-end MLOps platform for pet image classification (cat vs dog).
+
+This project tells a complete production story:
+
+> I started with a **CNN baseline**, compared it against **transfer learning** and **fine-tuning** on a pretrained backbone, **optimized hyperparameters with Optuna**, **tracked everything in MLflow**, **registered the champion model**, **exposed inference via FastAPI**, **explained predictions with Grad-CAM**, and shipped a full application with **Streamlit** and **Docker**.
 
 ## Stack
 
-| Camada | Tecnologias |
-|--------|-------------|
-| Modelagem | PyTorch, TorchVision, Albumentations, MLflow |
+| Layer | Technologies |
+|-------|--------------|
+| Modeling | PyTorch, TorchVision, Albumentations, MLflow, Optuna |
 | Backend | FastAPI, Pydantic |
 | Frontend | Streamlit |
 | Infra | Docker, Docker Compose |
-| Desenvolvimento | UV, Ruff, Pytest, Pre-commit |
+| Dev tooling | UV, Ruff, Pytest, Pre-commit |
 
-## Arquitetura
+## Architecture
 
 ```
 petvision-ai/
 ├── app/
-│   ├── api/main.py              # FastAPI REST API
-│   ├── frontend/streamlit_app.py
+│   ├── api/main.py                 # FastAPI REST API
+│   ├── frontend/streamlit_app.py   # Streamlit UI
 │   ├── inference/
 │   │   ├── predictor.py
-│   │   └── model_registry.py    # Carrega múltiplos checkpoints
-│   ├── models/                  # Checkpoints treinados (.pth)
+│   │   ├── grad_cam.py             # Grad-CAM explainability
+│   │   └── model_registry.py       # Local + MLflow model loading
+│   ├── observability/              # Structured logs + inference store
+│   ├── models/                     # Trained checkpoints (.pth)
 │   └── schemas/prediction.py
 ├── training/
-│   ├── train.py                 # Treino com MLflow
-│   ├── tune.py                  # HPO com Optuna (Exp 3)
-│   ├── compare.py               # Avaliação final e champion model
-│   ├── register.py              # Registro no MLflow Model Registry
-│   ├── plots.py                 # Gráficos comparativos
-│   ├── optim.py                 # Optimizer e scheduler
+│   ├── train.py                    # Training with MLflow tracking
+│   ├── tune.py                     # Optuna HPO (Exp 3)
+│   ├── compare.py                  # Final evaluation + champion selection
+│   ├── register.py                 # MLflow Model Registry
+│   ├── plots.py                    # Comparison charts
+│   ├── optim.py                    # Optimizer and scheduler builders
 │   ├── dataset.py
 │   ├── transforms.py
 │   ├── evaluate.py
 │   ├── config.py
-│   └── models/registry.py       # Registro de arquiteturas
-├── mlruns/                      # Experimentos MLflow
+│   └── models/registry.py          # Architecture registry
+├── mlruns/                         # MLflow experiment artifacts
 ├── tests/
 ├── Dockerfile
 ├── docker-compose.yml
 └── pyproject.toml
 ```
 
-## Início rápido
+## Quick start
 
-### 1. Instalar dependências
+### 1. Install dependencies
 
 ```bash
 uv sync
-```
-
-### 2. Pre-commit
-
-```bash
 uv run pre-commit install
 ```
 
-### 3. Treinar um modelo
+### 2. Prepare the dataset
 
-Organize o dataset em subpastas por classe:
+Organize images in per-class folders:
 
 ```
 data/
@@ -69,179 +70,221 @@ data/
     └── *.jpg
 ```
 
-Sequência de experimentos para comparar no MLflow:
+## MLOps workflow
+
+### Step 1 — CNN baseline (from scratch)
+
+Train a simple CNN without pretrained weights:
 
 ```powershell
-# Exp 1 — CNN Baseline (do zero)
-uv run python -m training.train --model simple_cnn --run-name exp1-cnn-baseline --epochs 10 --batch-size 64
-
-# Exp 2 — Transfer Learning (feature extraction, backbone congelado)
-uv run python -m training.train --model efficientnet_b0 --freeze-strategy head_only --run-name exp2-efficientnet-head-only --epochs 10 --batch-size 32
-
-# Exp 3 — Fine-Tuning Parcial (últimos 2 blocos + classifier)
-uv run python -m training.train --model efficientnet_b0 --freeze-strategy partial --run-name exp3-efficientnet-partial --epochs 10 --batch-size 32
-
-# Exp 4 — Fine-Tuning Completo (todos os pesos)
-uv run python -m training.train --model efficientnet_b0 --freeze-strategy full --run-name exp4-efficientnet-full --epochs 10 --batch-size 32
+uv run python -m training.train `
+  --model simple_cnn `
+  --run-name exp1-cnn-baseline `
+  --epochs 10 `
+  --batch-size 64
 ```
 
-Estratégias de congelamento (`--freeze-strategy`):
-| Valor | Descrição |
-|-------|-----------|
-| `head_only` | `features` congelado, só `classifier` treina |
-| `partial` | `features[:-2]` congelado, `features[-2:]` + `classifier` treinam |
-| `full` | Todos os pesos treináveis |
+### Step 2 — Transfer learning experiments (EfficientNet-B0)
 
-Compare runs no MLflow UI:
+Compare three fine-tuning strategies on a pretrained backbone:
+
+```powershell
+# Exp 2 — Feature extraction (frozen backbone, train classifier only)
+uv run python -m training.train `
+  --model efficientnet_b0 `
+  --freeze-strategy head_only `
+  --run-name exp2-efficientnet-head-only `
+  --epochs 10 `
+  --batch-size 32
+
+# Exp 3 — Partial fine-tuning (last 2 feature blocks + classifier)
+uv run python -m training.train `
+  --model efficientnet_b0 `
+  --freeze-strategy partial `
+  --run-name exp3-efficientnet-partial `
+  --epochs 10 `
+  --batch-size 32
+
+# Exp 4 — Full fine-tuning (all weights trainable)
+uv run python -m training.train `
+  --model efficientnet_b0 `
+  --freeze-strategy full `
+  --run-name exp4-efficientnet-full `
+  --epochs 10 `
+  --batch-size 32
+```
+
+Freeze strategies (`--freeze-strategy`):
+
+| Value | Description |
+|-------|-------------|
+| `head_only` | Backbone frozen; only the classifier head trains |
+| `partial` | Early feature blocks frozen; last 2 blocks + classifier train |
+| `full` | All weights are trainable |
+
+Track experiments in MLflow UI:
 
 ```powershell
 uv run mlflow ui --backend-store-uri sqlite:///mlflow.db
 ```
 
-Checkpoints: `app/models/{modelo}_{estrategia}_best.pth` (ex: `efficientnet_b0_partial_best.pth`).
-Experimentos ficam em `mlflow.db` (SQLite).
+Checkpoints are saved as `app/models/{model}_{strategy}_best.pth` (e.g. `efficientnet_b0_partial_best.pth`).
+Experiment metadata lives in `mlflow.db` (SQLite).
 
-#### HPO — Otimização de hiperparâmetros (Exp 3)
+### Step 3 — Hyperparameter optimization (Optuna, Exp 3)
 
-Busca automática com Optuna para melhorar o fine-tuning parcial (`efficientnet_b0` + `partial`):
+Automated search to improve partial fine-tuning (`efficientnet_b0` + `partial`):
 
 ```powershell
-# 10 trials × 5 épocas (métricas no MLflow, tag hpo=true, sem checkpoints)
+# 10 trials × 5 epochs (metrics in MLflow, tag hpo=true, no checkpoints)
 uv run python -m training.tune --n-trials 10 --epochs 5
 
-# Treino final com os melhores hiperparâmetros exportados
-uv run python -m training.train --model efficientnet_b0 --freeze-strategy partial `
-  --epochs 10 --run-name exp3-optimized --from-hpo app/models/hpo/exp3_best_params.json
+# Final training with exported best hyperparameters
+uv run python -m training.train `
+  --model efficientnet_b0 `
+  --freeze-strategy partial `
+  --epochs 10 `
+  --run-name exp3-optimized `
+  --from-hpo app/models/hpo/exp3_best_params.json
 ```
 
-Hiperparâmetros buscados: `learning_rate`, `batch_size`, `dropout`, `weight_decay`, `optimizer`, `scheduler`.
-Runs no MLflow: run pai `hpo-exp3-study` + nested runs `trial_001` … `trial_010`.
-Estudo Optuna persistido em `optuna_exp3.db`.
+Tuned hyperparameters: `learning_rate`, `batch_size`, `dropout`, `weight_decay`, `optimizer`, `scheduler`.
+MLflow runs: parent `hpo-exp3-study` + nested `trial_001` … `trial_010`.
+Optuna study persisted in `optuna_exp3.db`.
 
-#### Etapa 7 — Avaliação Final e Champion Model
+### Step 4 — Final evaluation and champion model
 
-Compare todos os checkpoints treinados e selecione automaticamente o melhor modelo pelo maior `val_acc`:
+Compare all trained checkpoints and promote the best model by highest `val_acc`:
 
 ```powershell
 uv run python -m training.compare --data-dir data
 ```
 
-Métricas calculadas por modelo: **Accuracy**, **Precision**, **Recall**, **F1-score**, **ROC-AUC** e **val_acc**.
-Gráficos comparativos registrados no MLflow (run `final-model-comparison`) e salvos em `reports/final_comparison/`.
-O champion é promovido para `app/models/best_model.pth` (usado pela API por padrão).
-Manifesto exportado em `app/models/champion.json`.
+Per-model metrics: **Accuracy**, **Precision**, **Recall**, **F1-score**, **ROC-AUC**, and **val_acc**.
+Comparison plots are logged to MLflow (`final-model-comparison`) and saved under `reports/final_comparison/`.
+The champion is promoted to `app/models/best_model.pth` (default for the API).
+Manifest exported to `app/models/champion.json`.
+
+### Step 5 — Model Registry and production serving
+
+Full MLOps path: Baseline → Experiments → HPO → Compare → Register → Production.
 
 ```powershell
-uv run mlflow ui --backend-store-uri sqlite:///mlflow.db
-```
-
-#### Etapa 8 — Model Registry e Produção
-
-Fluxo MLOps completo: Baseline → Experimentos → HPO → Compare → Register → Produção.
-
-```powershell
-# 1. Comparar modelos e eleger champion
+# 1. Compare models and select champion
 uv run python -m training.compare --data-dir data
 
-# 2. Registrar champion no MLflow Model Registry (stage Production)
+# 2. Register champion in MLflow Model Registry (Production stage)
 uv run python -m training.register
 
-# 3. API em modo produção (carrega automaticamente do Registry)
+# 3. Serve from Registry
 $env:PETVISION_MODEL_SOURCE="registry"
 uv run uvicorn app.api.main:app --reload --port 8000
 ```
 
-Em desenvolvimento local, a API usa checkpoints locais por padrão (`PETVISION_MODEL_SOURCE=local`).
-No Docker Compose, a API já está configurada para carregar `models:/petvision-classifier/Production`.
+Locally, the API loads checkpoints by default (`PETVISION_MODEL_SOURCE=local`).
+Docker Compose is preconfigured to load `models:/petvision-classifier/Production`.
 
-### 4. Rodar a API localmente
+## Serving and testing
 
-```bash
+### Run the API locally
+
+```powershell
 uv run uvicorn app.api.main:app --reload --port 8000
 ```
 
-Endpoints:
-- `GET /health` — status da API
-- `GET /models` — arquiteturas e checkpoints disponíveis
-- `GET /monitoring/inferences` — histórico de inferências persistidas
-- `POST /predict` — classificação de imagem
-- `POST /explain` — classificação + Grad-CAM (heatmap base64)
+**Endpoints**
 
-#### Etapa 11 — Grad-CAM (Explainability)
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/health` | API and model status |
+| `GET` | `/models` | Available architectures and checkpoints |
+| `GET` | `/monitoring/inferences` | Persisted inference history |
+| `POST` | `/predict` | Image classification |
+| `POST` | `/explain` | Classification + Grad-CAM heatmap (base64 PNG) |
 
-Visualize as regiões da imagem que mais influenciaram a predição:
+**Test with curl** (replace the image path):
 
 ```powershell
-# Via API (retorna overlay PNG em base64)
-curl -X POST "http://localhost:8000/explain?top_k=3" -F "file=@cat.jpg"
+# Health check
+curl.exe http://localhost:8000/health
 
-# Explicar uma classe específica
-curl -X POST "http://localhost:8000/explain?target_label=cat" -F "file=@cat.jpg"
+# Predict
+curl.exe -X POST "http://localhost:8000/predict?top_k=1" `
+  -F "file=@data/cat/exemplo.jpeg"
+
+# Explain with Grad-CAM
+curl.exe -X POST "http://localhost:8000/explain?top_k=1" `
+  -F "file=@data/cat/exemplo.jpeg"
+
+# Explain a specific class
+curl.exe -X POST "http://localhost:8000/explain?target_label=cat" `
+  -F "file=@data/cat/exemplo.jpeg"
+
+# Inference monitoring
+curl.exe http://localhost:8000/monitoring/inferences?limit=20
 ```
 
-No Streamlit, marque **Mostrar Grad-CAM** na barra lateral para ver o overlay após a classificação.
-Arquiteturas suportadas: `simple_cnn`, `resnet18`, `resnet50`, `efficientnet_b0`.
+### Run the Streamlit frontend
 
-### 5. Rodar o frontend Streamlit
+```powershell
+# Terminal 1 — API
+uv run uvicorn app.api.main:app --reload --port 8000
 
-```bash
+# Terminal 2 — Streamlit (set API URL to http://localhost:8000 in the sidebar)
 uv run streamlit run app/frontend/streamlit_app.py
 ```
 
-### 6. Docker Compose (stack completa)
+The UI shows the top prediction, confidence bar, and optional Grad-CAM overlay.
+
+Supported Grad-CAM architectures: `simple_cnn`, `resnet18`, `resnet50`, `efficientnet_b0`.
+
+### Docker Compose (full stack)
 
 ```bash
 docker compose up --build
 ```
 
-| Serviço | URL |
+| Service | URL |
 |---------|-----|
 | API | http://localhost:8000 |
 | Streamlit | http://localhost:8501 |
 | MLflow UI | http://localhost:5000 |
 
-#### Etapa 12 — Testes e Observabilidade
+## Observability
 
-Cada inferência (`/predict` e `/explain`) gera:
+Every `/predict` and `/explain` call produces:
 
-- **Log estruturado JSON** no stdout (`timestamp`, `prediction`, `probability`, `latency_ms`, `model_version`, etc.)
-- **Persistência SQLite** em `inference_monitoring.db` com os campos:
+- **Structured JSON logs** on stdout (`timestamp`, `prediction`, `probability`, `latency_ms`, `model_version`, …)
+- **SQLite persistence** in `inference_monitoring.db` with:
   - `timestamp`, `filename`, `prediction`, `probability`, `latency_ms`, `model_version`
 
-Consultar histórico de inferências:
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PETVISION_INFERENCE_DB` | `inference_monitoring.db` | Monitoring database path |
+| `PETVISION_LOG_LEVEL` | `INFO` | Structured log level |
+| `PETVISION_MODEL_SOURCE` | `local` | `local` or `registry` |
 
-```powershell
-curl http://localhost:8000/monitoring/inferences?limit=20
-```
-
-Variáveis de ambiente:
-
-| Variável | Padrão | Descrição |
-|----------|--------|-----------|
-| `PETVISION_INFERENCE_DB` | `inference_monitoring.db` | Caminho do banco de monitoramento |
-| `PETVISION_LOG_LEVEL` | `INFO` | Nível dos logs estruturados |
-
-## Desenvolvimento
+## Development
 
 ```bash
 # Lint
 uv run ruff check .
 uv run ruff format .
 
-# Testes (unitários + integração)
+# Tests (unit + integration)
 uv run pytest
 
-# Com cobertura
+# With coverage
 uv run pytest --cov=app --cov=training
 ```
 
-## Múltiplos modelos e experimentos
+## Extending the platform
 
-- **Arquiteturas**: adicione novos modelos em `training/models/registry.py`.
-- **Experimentos**: cada execução de `training.train` cria um run no MLflow com parâmetros, métricas e artefatos.
-- **Checkpoints**: salve modelos adicionais em `app/models/` e carregue via `ModelRegistry`.
-- **Model Registry**: após `training.register`, o champion fica em `petvision-classifier@Production` no MLflow.
+- **Architectures**: add models in `training/models/registry.py`.
+- **Experiments**: each `training.train` run logs params, metrics, and artifacts to MLflow.
+- **Checkpoints**: store additional `.pth` files in `app/models/` and load via `ModelRegistry`.
+- **Model Registry**: after `training.register`, the champion is available as `petvision-classifier@Production`.
 
-## Licença
+## License
 
 MIT
