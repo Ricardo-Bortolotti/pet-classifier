@@ -16,6 +16,7 @@ data/
 !app/models/.gitkeep
 optuna_exp3.db
 test.db
+inference_monitoring.db
 reports/
 app/models/champion.json
 

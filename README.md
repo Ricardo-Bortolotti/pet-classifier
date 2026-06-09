@@ -163,6 +163,7 @@ uv run uvicorn app.api.main:app --reload --port 8000
 Endpoints:
 - `GET /health` — status da API
 - `GET /models` — arquiteturas e checkpoints disponíveis
+- `GET /monitoring/inferences` — histórico de inferências persistidas
 - `POST /predict` — classificação de imagem
 - `POST /explain` — classificação + Grad-CAM (heatmap base64)
 
@@ -199,6 +200,27 @@ docker compose up --build
 | Streamlit | http://localhost:8501 |
 | MLflow UI | http://localhost:5000 |
 
+#### Etapa 12 — Testes e Observabilidade
+
+Cada inferência (`/predict` e `/explain`) gera:
+
+- **Log estruturado JSON** no stdout (`timestamp`, `prediction`, `probability`, `latency_ms`, `model_version`, etc.)
+- **Persistência SQLite** em `inference_monitoring.db` com os campos:
+  - `timestamp`, `filename`, `prediction`, `probability`, `latency_ms`, `model_version`
+
+Consultar histórico de inferências:
+
+```powershell
+curl http://localhost:8000/monitoring/inferences?limit=20
+```
+
+Variáveis de ambiente:
+
+| Variável | Padrão | Descrição |
+|----------|--------|-----------|
+| `PETVISION_INFERENCE_DB` | `inference_monitoring.db` | Caminho do banco de monitoramento |
+| `PETVISION_LOG_LEVEL` | `INFO` | Nível dos logs estruturados |
+
 ## Desenvolvimento
 
 ```bash
@@ -206,7 +228,7 @@ docker compose up --build
 uv run ruff check .
 uv run ruff format .
 
-# Testes
+# Testes (unitários + integração)
 uv run pytest
 
 # Com cobertura

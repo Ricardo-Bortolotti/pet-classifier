@@ -7,11 +7,14 @@ services:
       - ./app/models:/app/app/models
       - ./mlruns:/app/mlruns
       - ./mlflow.db:/app/mlflow.db
+      - ./inference_monitoring.db:/app/inference_monitoring.db
     environment:
       - MLFLOW_TRACKING_URI=sqlite:////app/mlflow.db
       - PETVISION_MODEL_SOURCE=registry
       - MLFLOW_REGISTERED_MODEL_NAME=petvision-classifier
       - MLFLOW_MODEL_STAGE=Production
+      - PETVISION_INFERENCE_DB=/app/inference_monitoring.db
+      - PETVISION_LOG_LEVEL=INFO
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s

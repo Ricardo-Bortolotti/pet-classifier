@@ -36,11 +36,13 @@ def test_models_endpoint():
 def test_predict_endpoint(monkeypatch):
     mock_predictor = MagicMock()
     mock_predictor.model_name = "efficientnet_b0"
+    mock_predictor.artifact = {"model_name": "efficientnet_b0"}
     mock_predictor.predict.return_value = [
         PredictionResult(label="cat", confidence=0.95),
         PredictionResult(label="dog", confidence=0.05),
     ]
     monkeypatch.setattr("app.api.main.get_predictor", lambda: mock_predictor)
+    monkeypatch.setattr("app.api.main._track_inference", lambda **_: None)
 
     response = client.post(
         "/predict",
@@ -68,12 +70,14 @@ def test_predict_rejects_non_image():
 def test_explain_endpoint(monkeypatch):
     mock_predictor = MagicMock()
     mock_predictor.model_name = "efficientnet_b0"
+    mock_predictor.artifact = {"model_name": "efficientnet_b0"}
     mock_predictor.explain.return_value = (
         [PredictionResult(label="cat", confidence=0.95)],
         "cat",
         "aGVsbG8=",
     )
     monkeypatch.setattr("app.api.main.get_predictor", lambda: mock_predictor)
+    monkeypatch.setattr("app.api.main._track_inference", lambda **_: None)
 
     response = client.post(
         "/explain",

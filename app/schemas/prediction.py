@@ -28,3 +28,23 @@ class ExplainResponse(BaseModel):
     predictions: list[PredictionResult]
     explained_class: str
     heatmap_base64: str = Field(description="PNG overlay with Grad-CAM heatmap (base64)")
+
+
+class InferenceLogEntry(BaseModel):
+    """Persisted inference event exposed for monitoring."""
+
+    id: int
+    timestamp: str
+    filename: str
+    prediction: str
+    probability: float
+    latency_ms: float
+    model_version: str
+    endpoint: str = "predict"
+
+
+class InferenceMonitoringResponse(BaseModel):
+    """Recent inference events for operational monitoring."""
+
+    total: int
+    records: list[InferenceLogEntry]
