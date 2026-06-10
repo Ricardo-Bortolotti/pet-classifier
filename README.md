@@ -2,37 +2,90 @@
 
 End-to-end MLOps platform for pet image classification (cat vs dog).
 
+**Live demo**
+
+| Service | URL |
+|---------|-----|
+| Frontend | [pet-classifier-up.streamlit.app](https://pet-classifier-up.streamlit.app/) |
+| API | [pet-classifier-production.up.railway.app](https://pet-classifier-production.up.railway.app/) |
+
+Upload a cat or dog photo in the Streamlit app — the UI calls the FastAPI backend on Railway, runs **EfficientNet-B0** inference, and optionally shows a **Grad-CAM** explainability overlay.
+
 This project tells a complete production story:
 
-> I started with a **CNN baseline**, compared it against **transfer learning** and **fine-tuning** on a pretrained backbone, **optimized hyperparameters with Optuna**, **tracked everything in MLflow**, **registered the champion model**, **exposed inference via FastAPI**, **explained predictions with Grad-CAM**, and shipped a full application with **Streamlit** and **Docker**.
+> I started with a **CNN baseline**, compared it against **transfer learning** and **fine-tuning** on a pretrained backbone, **optimized hyperparameters with Optuna**, **tracked everything in MLflow**, **registered the champion model**, **exposed inference via FastAPI**, **explained predictions with Grad-CAM**, and shipped a full application with **Streamlit**, **Docker**, and **cloud deploy**.
 
-## Stack
+## What this project demonstrates
 
-| Layer | Technologies |
-|-------|--------------|
-| Modeling | PyTorch, TorchVision, Albumentations, MLflow, Optuna |
-| Backend | FastAPI, Pydantic |
+- **Deep Learning** — transfer learning, HPO, champion model selection (EfficientNet-B0)
+- **FastAPI** — REST API for `/predict`, `/explain`, health and monitoring
+- **Docker** — lean production image (CPU-only PyTorch, no training deps)
+- **CI/CD** — GitHub Actions (lint + tests) on every push
+- **Cloud deploy** — Railway (API) + Streamlit Cloud (frontend)
+- **Production inference** — model baked into the container at build time
+- **Frontend + backend integration** — Streamlit consumes the live API over HTTPS
+
+## Technologies
+
+| Category | Tools |
+|----------|-------|
+| Deep Learning | PyTorch, TorchVision |
+| API | FastAPI, Pydantic, Uvicorn |
 | Frontend | Streamlit |
-| Infra | Docker, Docker Compose |
-| Dev tooling | UV, Ruff, Pytest, Pre-commit |
+| MLOps | MLflow, Optuna, Albumentations |
+| Infra | Docker, Docker Compose, Railway, Streamlit Cloud |
+| CI/CD | GitHub Actions, Ruff, Pytest, Pre-commit |
+| Tooling | UV |
 
-## Deployment architecture
+## Production architecture
 
 ```
-GitHub
-├── FastAPI ──────────► Render (Docker + MODEL_URL)
-├── Streamlit ────────► Streamlit Cloud (PETVISION_API_URL)
-├── MLflow ───────────► local (treino + registry offline)
-├── Docker
-└── GitHub Actions ───► ruff + pytest (+ deploy hook opcional)
+Streamlit Cloud                    Railway
+(Frontend)                         (REST API + Docker)
+     │                                   │
+     │  HTTPS                            │
+     └──────────►  FastAPI  ──────────────┘
+                        │
+                        ▼
+              EfficientNet-B0 (champion)
+                        │
+                        ▼
+                 Cat / Dog prediction
+                 + Grad-CAM (optional)
 ```
 
-| Target | Platform | Dependencies |
-|--------|----------|----------------|
-| API | Render (Docker) | `[project]` only — lean image, no CUDA |
-| Frontend | Streamlit Cloud | `frontend` group (`requirements-frontend.txt`) |
-| Training / MLOps | Local | `training` group |
-| Model artifact | GitHub Release | `best_model.pth` (gitignored, baked into Docker at build) |
+**Inference path**
+
+```
+Frontend (Streamlit)
+        ↓
+REST API (FastAPI)
+        ↓
+EfficientNet champion model
+        ↓
+Deploy (Railway)
+```
+
+**CI/CD pipeline** — fully automatic deploy on `main`:
+
+```
+git push main
+     ↓
+GitHub Actions
+     ↓
+Ruff + Pytest
+     ↓
+Docker build (Railway)
+     ↓
+Deploy Railway
+```
+
+| Target | Platform | Notes |
+|--------|----------|-------|
+| API | [Railway](https://railway.app/) | Docker (`Dockerfile`), port `8000`, `MODEL_URL` at build |
+| Frontend | [Streamlit Cloud](https://streamlit.io/cloud) | `PETVISION_API_URL` → Railway API |
+| Training / MLOps | Local | MLflow + Optuna (`training` dependency group) |
+| Model artifact | GitHub Release | `best_model.pth` baked into Docker image |
 
 ## Project structure
 
@@ -59,7 +112,7 @@ petvision-ai/
 │   ├── transforms.py
 │   ├── evaluate.py
 │   ├── config.py
-│   └── models/registry.py          # Architecture registry
+│   └── models/                     # Re-exports from app.inference.models
 ├── mlruns/                         # MLflow experiment artifacts
 ├── tests/
 ├── Dockerfile                      # API image (production deps only)
@@ -73,7 +126,7 @@ petvision-ai/
 ### 1. Install dependencies
 
 ```bash
-# API only (same as Docker / Render)
+# API only (same as Docker / Railway)
 uv sync
 
 # Full local workflow (training + frontend + dev tooling)
@@ -209,7 +262,7 @@ Docker Compose is preconfigured to load `models:/petvision-classifier/Production
 
 ## Deploy
 
-Render does not support Docker volume mounts (`-v ./app/models:...`). Checkpoints are gitignored (`*.pth`), so the model is **downloaded at Docker build time** via `MODEL_URL`.
+Cloud platforms do not support local volume mounts (`-v ./app/models:...`). Checkpoints are gitignored (`*.pth`), so the champion model is **downloaded at Docker build time** via `MODEL_URL` and baked into the Railway image.
 
 ### 1. Publish the model (GitHub Release)
 
@@ -219,14 +272,15 @@ uv run python -m training.compare --data-dir data
 
 # Create a GitHub Release (e.g. v1.0.0) and attach app/models/best_model.pth
 # Copy the public asset URL, e.g.:
-# https://github.com/<user>/pet-classifier/releases/download/v1.0.0/best_model.pth
+# https://github.com/Ricardo-Bortolotti/pet-classifier/releases/download/v1.0.0/best_model.pth
 ```
 
-### 2. API on Render
+### 2. API on Railway
 
-1. Connect the GitHub repo to Render (or use [`render.yaml`](render.yaml) Blueprint).
+1. Connect the GitHub repo to [Railway](https://railway.app/).
 2. Runtime: **Docker** (`Dockerfile`), port `8000`.
-3. Set environment variables:
+3. Enable deploy on push to `main`.
+4. Set environment variables:
 
 | Variable | Value |
 |----------|-------|
@@ -235,12 +289,10 @@ uv run python -m training.compare --data-dir data
 | `REQUIRE_MODEL` | `true` |
 | `PETVISION_LOG_LEVEL` | `INFO` |
 
-Render passes `MODEL_URL` as a Docker build arg; the Dockerfile downloads the checkpoint into `app/models/best_model.pth`.
-
-Optional: add `RENDER_DEPLOY_HOOK` as a GitHub secret — CI triggers redeploy after tests pass on `main`.
+Railway passes `MODEL_URL` as a Docker build arg; the Dockerfile downloads the checkpoint into `app/models/best_model.pth`.
 
 ```bash
-# Verify locally (simulates Render build)
+# Verify locally (simulates Railway build)
 docker build --build-arg MODEL_URL=<release-url> -t petvision-api .
 docker run -p 8000:8000 petvision-api
 curl http://localhost:8000/health
@@ -253,19 +305,26 @@ curl http://localhost:8000/health
 1. Point Streamlit Cloud at this repo.
 2. Main file: `app/frontend/streamlit_app.py`.
 3. Dependencies: `requirements-frontend.txt`.
-4. Secrets: `PETVISION_API_URL=https://your-api.onrender.com`
+4. Secrets:
+
+```
+PETVISION_API_URL=https://pet-classifier-production.up.railway.app
+```
+
+The API URL is fixed in the app — users do not configure it in the UI.
 
 ### 4. GitHub Actions
 
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every PR and push:
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every PR and push to `main`:
 
-- `ruff check`
-- `pytest`
-- On `main`: optional Render deploy hook (`RENDER_DEPLOY_HOOK` secret)
+- `ruff check` — lint
+- `pytest` — unit and integration tests
+
+After tests pass, Railway rebuilds the Docker image and redeploys automatically on merge to `main`.
 
 ### 5. Local Docker Compose
 
-`docker compose` still uses MLflow Registry and volume mounts for local full-stack testing — see `docker-compose.yml`.
+`docker compose` uses MLflow Registry and volume mounts for local full-stack testing — see `docker-compose.yml`.
 
 ## Serving and testing
 
@@ -313,7 +372,8 @@ curl.exe http://localhost:8000/monitoring/inferences?limit=20
 # Terminal 1 — API
 uv run uvicorn app.api.main:app --reload --port 8000
 
-# Terminal 2 — Streamlit (set API URL to http://localhost:8000 in the sidebar)
+# Terminal 2 — Streamlit
+$env:PETVISION_API_URL="http://localhost:8000"
 uv run streamlit run app/frontend/streamlit_app.py
 ```
 
@@ -343,7 +403,7 @@ Every `/predict` and `/explain` call produces:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PETVISION_INFERENCE_DB` | `inference_monitoring.db` | Monitoring database path (ephemeral on Render) |
+| `PETVISION_INFERENCE_DB` | `inference_monitoring.db` | Monitoring database path (ephemeral on Railway) |
 | `PETVISION_LOG_LEVEL` | `INFO` | Structured log level |
 | `PETVISION_MODEL_SOURCE` | `local` | `local` or `registry` |
 | `MODEL_URL` | — | Docker build arg: URL to download `best_model.pth` |
@@ -366,7 +426,7 @@ uv run pytest --cov=app --cov=training
 
 ## Extending the platform
 
-- **Architectures**: add models in `training/models/registry.py`.
+- **Architectures**: add models in `app/inference/models/registry.py`.
 - **Experiments**: each `training.train` run logs params, metrics, and artifacts to MLflow.
 - **Checkpoints**: store additional `.pth` files in `app/models/` and load via `ModelRegistry`.
 - **Model Registry**: after `training.register`, the champion is available as `petvision-classifier@Production`.
