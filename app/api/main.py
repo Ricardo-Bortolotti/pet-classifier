@@ -90,13 +90,21 @@ def _track_inference(
     )
 
 
+def _require_model_at_startup() -> bool:
+    return os.environ.get("REQUIRE_MODEL", "").lower() in {"1", "true", "yes"}
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     configure_logging(os.environ.get("PETVISION_LOG_LEVEL", "INFO"))
     api_logger.info("api_starting")
-    with suppress(FileNotFoundError):
+    if _require_model_at_startup():
         get_predictor()
         api_logger.info("model_loaded", extra={"model_source": resolve_model_source()})
+    else:
+        with suppress(FileNotFoundError):
+            get_predictor()
+            api_logger.info("model_loaded", extra={"model_source": resolve_model_source()})
     yield
     api_logger.info("api_shutdown")
 

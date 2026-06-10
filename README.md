@@ -19,40 +19,20 @@ This project tells a complete production story:
 ## Deployment architecture
 
 ```
-                     GitHub
-
-                        │
-
-        ┌───────────────┴───────────────┐
-
-        │                               │
-
- GitHub Actions                Streamlit Cloud
-
-        │                               │
-
- Ruff → Pytest → Docker               Frontend
-
-        │                               │
-
-        ▼                               │
-
-      Render ───────────────────────────┘
-
-        │
-
-     FastAPI
-
-        │
-
- EfficientNet Champion
+GitHub
+├── FastAPI ──────────► Render (Docker + MODEL_URL)
+├── Streamlit ────────► Streamlit Cloud (PETVISION_API_URL)
+├── MLflow ───────────► local (treino + registry offline)
+├── Docker
+└── GitHub Actions ───► ruff + pytest (+ deploy hook opcional)
 ```
 
 | Target | Platform | Dependencies |
 |--------|----------|----------------|
 | API | Render (Docker) | `[project]` only — lean image, no CUDA |
 | Frontend | Streamlit Cloud | `frontend` group (`requirements-frontend.txt`) |
-| Training / MLOps | Local or CI | `training` group |
+| Training / MLOps | Local | `training` group |
+| Model artifact | GitHub Release | `best_model.pth` (gitignored, baked into Docker at build) |
 
 ## Project structure
 
@@ -229,22 +209,63 @@ Docker Compose is preconfigured to load `models:/petvision-classifier/Production
 
 ## Deploy
 
-### API on Render
+Render does not support Docker volume mounts (`-v ./app/models:...`). Checkpoints are gitignored (`*.pth`), so the model is **downloaded at Docker build time** via `MODEL_URL`.
 
-1. Connect the GitHub repo to Render.
-2. Use **Docker** as the runtime (root `Dockerfile`).
-3. Set the port to `8000` and mount or bake in `app/models/best_model.pth`.
-4. GitHub Actions can run `ruff` + `pytest` before the image is built and deployed.
+### 1. Publish the model (GitHub Release)
 
-The API image installs only `[project]` dependencies — no MLflow, Optuna, Streamlit, or dev tooling.
+```powershell
+# Train and promote champion locally
+uv run python -m training.compare --data-dir data
 
-### Frontend on Streamlit Cloud
+# Create a GitHub Release (e.g. v1.0.0) and attach app/models/best_model.pth
+# Copy the public asset URL, e.g.:
+# https://github.com/<user>/pet-classifier/releases/download/v1.0.0/best_model.pth
+```
+
+### 2. API on Render
+
+1. Connect the GitHub repo to Render (or use [`render.yaml`](render.yaml) Blueprint).
+2. Runtime: **Docker** (`Dockerfile`), port `8000`.
+3. Set environment variables:
+
+| Variable | Value |
+|----------|-------|
+| `MODEL_URL` | GitHub Release asset URL for `best_model.pth` |
+| `PETVISION_MODEL_SOURCE` | `local` |
+| `REQUIRE_MODEL` | `true` |
+| `PETVISION_LOG_LEVEL` | `INFO` |
+
+Render passes `MODEL_URL` as a Docker build arg; the Dockerfile downloads the checkpoint into `app/models/best_model.pth`.
+
+Optional: add `RENDER_DEPLOY_HOOK` as a GitHub secret — CI triggers redeploy after tests pass on `main`.
+
+```bash
+# Verify locally (simulates Render build)
+docker build --build-arg MODEL_URL=<release-url> -t petvision-api .
+docker run -p 8000:8000 petvision-api
+curl http://localhost:8000/health
+```
+
+**Future:** switch to `PETVISION_MODEL_SOURCE=registry` with a remote MLflow server (Postgres + artifact store).
+
+### 3. Frontend on Streamlit Cloud
 
 1. Point Streamlit Cloud at this repo.
 2. Main file: `app/frontend/streamlit_app.py`.
-3. Dependencies: `requirements-frontend.txt` (generated with `uv export --only-group frontend --no-hashes`).
+3. Dependencies: `requirements-frontend.txt`.
+4. Secrets: `PETVISION_API_URL=https://your-api.onrender.com`
 
-Set the API URL in the Streamlit sidebar to your Render endpoint (e.g. `https://your-api.onrender.com`).
+### 4. GitHub Actions
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every PR and push:
+
+- `ruff check`
+- `pytest`
+- On `main`: optional Render deploy hook (`RENDER_DEPLOY_HOOK` secret)
+
+### 5. Local Docker Compose
+
+`docker compose` still uses MLflow Registry and volume mounts for local full-stack testing — see `docker-compose.yml`.
 
 ## Serving and testing
 
@@ -322,9 +343,12 @@ Every `/predict` and `/explain` call produces:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PETVISION_INFERENCE_DB` | `inference_monitoring.db` | Monitoring database path |
+| `PETVISION_INFERENCE_DB` | `inference_monitoring.db` | Monitoring database path (ephemeral on Render) |
 | `PETVISION_LOG_LEVEL` | `INFO` | Structured log level |
 | `PETVISION_MODEL_SOURCE` | `local` | `local` or `registry` |
+| `MODEL_URL` | — | Docker build arg: URL to download `best_model.pth` |
+| `REQUIRE_MODEL` | `false` | If `true`, API fails startup when model is missing |
+| `PETVISION_API_URL` | `http://localhost:8000` | Streamlit default API endpoint |
 
 ## Development
 

@@ -25,6 +25,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.frontend
+    environment:
+      - PETVISION_API_URL=http://api:8000
     ports:
       - "8501:8501"
     volumes:

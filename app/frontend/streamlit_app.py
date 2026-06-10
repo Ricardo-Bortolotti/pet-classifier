@@ -1,13 +1,14 @@
 """Streamlit UI for PetVision AI."""
 
 import base64
+import os
 from io import BytesIO
 
 import requests
 import streamlit as st
 from PIL import Image
 
-API_URL = "http://api:8000"
+DEFAULT_API_URL = os.environ.get("PETVISION_API_URL", "http://localhost:8000")
 
 MIME_BY_EXTENSION = {
     ".jpg": "image/jpeg",
@@ -43,7 +44,7 @@ def main() -> None:
 
     with st.sidebar:
         st.header("Settings")
-        api_url = st.text_input("API URL", value=API_URL)
+        api_url = st.text_input("API URL", value=DEFAULT_API_URL)
         show_grad_cam = st.checkbox("Show Grad-CAM", value=True)
 
         if st.button("Check API health"):
