@@ -1,7 +1,7 @@
 import torch.nn as nn
 from torchvision import models
 
-from training.config import ModelConfig
+from app.inference.config import ModelConfig
 
 
 def build_efficientnet_b0(config: ModelConfig) -> nn.Module:

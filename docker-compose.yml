@@ -22,8 +22,9 @@ services:
       retries: 3
 
   frontend:
-    build: .
-    command: ["uv", "run", "streamlit", "run", "app/frontend/streamlit_app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
     ports:
       - "8501:8501"
     volumes:

@@ -16,7 +16,45 @@ This project tells a complete production story:
 | Infra | Docker, Docker Compose |
 | Dev tooling | UV, Ruff, Pytest, Pre-commit |
 
-## Architecture
+## Deployment architecture
+
+```
+                     GitHub
+
+                        │
+
+        ┌───────────────┴───────────────┐
+
+        │                               │
+
+ GitHub Actions                Streamlit Cloud
+
+        │                               │
+
+ Ruff → Pytest → Docker               Frontend
+
+        │                               │
+
+        ▼                               │
+
+      Render ───────────────────────────┘
+
+        │
+
+     FastAPI
+
+        │
+
+ EfficientNet Champion
+```
+
+| Target | Platform | Dependencies |
+|--------|----------|----------------|
+| API | Render (Docker) | `[project]` only — lean image, no CUDA |
+| Frontend | Streamlit Cloud | `frontend` group (`requirements-frontend.txt`) |
+| Training / MLOps | Local or CI | `training` group |
+
+## Project structure
 
 ```
 petvision-ai/
@@ -44,7 +82,8 @@ petvision-ai/
 │   └── models/registry.py          # Architecture registry
 ├── mlruns/                         # MLflow experiment artifacts
 ├── tests/
-├── Dockerfile
+├── Dockerfile                      # API image (production deps only)
+├── Dockerfile.frontend             # Local Streamlit image
 ├── docker-compose.yml
 └── pyproject.toml
 ```
@@ -54,7 +93,11 @@ petvision-ai/
 ### 1. Install dependencies
 
 ```bash
+# API only (same as Docker / Render)
 uv sync
+
+# Full local workflow (training + frontend + dev tooling)
+uv sync --all-groups
 uv run pre-commit install
 ```
 
@@ -183,6 +226,25 @@ uv run uvicorn app.api.main:app --reload --port 8000
 
 Locally, the API loads checkpoints by default (`PETVISION_MODEL_SOURCE=local`).
 Docker Compose is preconfigured to load `models:/petvision-classifier/Production`.
+
+## Deploy
+
+### API on Render
+
+1. Connect the GitHub repo to Render.
+2. Use **Docker** as the runtime (root `Dockerfile`).
+3. Set the port to `8000` and mount or bake in `app/models/best_model.pth`.
+4. GitHub Actions can run `ruff` + `pytest` before the image is built and deployed.
+
+The API image installs only `[project]` dependencies — no MLflow, Optuna, Streamlit, or dev tooling.
+
+### Frontend on Streamlit Cloud
+
+1. Point Streamlit Cloud at this repo.
+2. Main file: `app/frontend/streamlit_app.py`.
+3. Dependencies: `requirements-frontend.txt` (generated with `uv export --only-group frontend --no-hashes`).
+
+Set the API URL in the Streamlit sidebar to your Render endpoint (e.g. `https://your-api.onrender.com`).
 
 ## Serving and testing
 

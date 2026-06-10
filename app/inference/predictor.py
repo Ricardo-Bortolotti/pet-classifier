@@ -8,8 +8,8 @@ from PIL import Image
 
 from app.inference.grad_cam import encode_overlay_png, generate_grad_cam_overlay
 from app.inference.model_registry import ModelRegistry
+from app.inference.transforms import get_eval_transforms
 from app.schemas.prediction import PredictionResult
-from training.transforms import get_eval_transforms
 
 
 class Predictor:
@@ -44,8 +44,7 @@ class Predictor:
     def predict(self, image_bytes: bytes, top_k: int = 3) -> list[PredictionResult]:
         """Classify an image and return top-k predictions."""
         image = Image.open(BytesIO(image_bytes)).convert("RGB")
-        tensor = self.transform(image=np.array(image))["image"]
-        batch = tensor.unsqueeze(0)
+        batch = self.transform(image).unsqueeze(0)
 
         logits = self.model(batch)
         probabilities = F.softmax(logits, dim=1).squeeze(0)
@@ -63,8 +62,7 @@ class Predictor:
     def _prepare_image(self, image_bytes: bytes) -> tuple[np.ndarray, torch.Tensor]:
         image = Image.open(BytesIO(image_bytes)).convert("RGB")
         array = np.array(image)
-        tensor = self.transform(image=array)["image"]
-        return array, tensor.unsqueeze(0)
+        return array, self.transform(image).unsqueeze(0)
 
     def explain(
         self,

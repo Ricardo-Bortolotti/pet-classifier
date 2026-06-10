@@ -12,6 +12,7 @@ from app.inference.model_registry import (
     get_registered_model_name,
     resolve_model_source,
 )
+from app.inference.models import list_models
 from app.inference.predictor import Predictor
 from app.observability.inference_store import InferenceStore
 from app.observability.logging import configure_logging, get_logger
@@ -22,7 +23,6 @@ from app.schemas.prediction import (
     InferenceMonitoringResponse,
     PredictionResponse,
 )
-from training.models import list_models
 
 MODELS_DIR = Path("app/models")
 DEFAULT_INFERENCE_DB = Path("inference_monitoring.db")

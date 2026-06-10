@@ -1,6 +1,8 @@
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 
+__all__ = ["get_eval_transforms", "get_train_transforms"]
+
 
 def get_train_transforms(image_size: int = 224) -> A.Compose:
     """Augmentations applied during training."""
@@ -22,7 +24,7 @@ def get_train_transforms(image_size: int = 224) -> A.Compose:
 
 
 def get_eval_transforms(image_size: int = 224) -> A.Compose:
-    """Deterministic transforms for validation and inference."""
+    """Deterministic transforms for validation during training."""
     return A.Compose(
         [
             A.Resize(image_size, image_size),

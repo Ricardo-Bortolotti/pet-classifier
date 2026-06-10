@@ -6,8 +6,8 @@ import mlflow
 import torch
 from mlflow.tracking import MlflowClient
 
-from training.config import ModelConfig
-from training.models import build_model
+from app.inference.config import ModelConfig
+from app.inference.models import build_model
 
 DEFAULT_MODELS_DIR = Path("app/models")
 DEFAULT_REGISTERED_MODEL_NAME = "petvision-classifier"

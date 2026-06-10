@@ -3,9 +3,9 @@ from collections.abc import Callable
 import torch.nn as nn
 from torchvision import models
 
-from training.config import ModelConfig
-from training.models.efficientnet import build_efficientnet_b0
-from training.models.simple_cnn import SimpleCNN
+from app.inference.config import ModelConfig
+from app.inference.models.efficientnet import build_efficientnet_b0
+from app.inference.models.simple_cnn import SimpleCNN
 
 
 def _build_resnet18(config: ModelConfig) -> nn.Module:
